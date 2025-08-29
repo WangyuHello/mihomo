@@ -20,6 +20,18 @@ import (
 	"golang.org/x/exp/maps"
 )
 
+var (
+	svcbHTTPSEnable bool
+)
+
+func GetSVCBHTTPSEnable() bool {
+	return svcbHTTPSEnable
+}
+
+func SetSVCBHTTPSEnable(enableSVCBHTTPS bool) {
+	svcbHTTPSEnable = enableSVCBHTTPS
+}
+
 type dnsClient interface {
 	ExchangeContext(ctx context.Context, m *D.Msg) (msg *D.Msg, err error)
 	Address() string
@@ -51,43 +63,53 @@ type Resolver struct {
 	defaultResolver       *Resolver
 }
 
-func (r *Resolver) LookupIPPrimaryIPv4(ctx context.Context, host string) (ips []netip.Addr, err error) {
-	ch := make(chan []netip.Addr, 1)
+func (r *Resolver) LookupIPPrimaryIPv4(ctx context.Context, host string) (ips []netip.Addr, port uint16, err error) {
+	ch := make(chan []netip.AddrPort, 1)
 	go func() {
 		defer close(ch)
-		ip, err := r.lookupIP(ctx, host, D.TypeAAAA)
+		ip, port, err := r.lookupIP(ctx, host, D.TypeAAAA)
 		if err != nil {
 			return
 		}
-		ch <- ip
+		ipPorts := make([]netip.AddrPort, len(ip))
+		for i, addr := range ip {
+			ipPorts[i] = netip.AddrPortFrom(addr, port)
+		}
+		ch <- ipPorts
 	}()
-
-	ips, err = r.lookupIP(ctx, host, D.TypeA)
+	ips, port, err = r.lookupIP(ctx, host, D.TypeA)
 	if err == nil {
 		return
 	}
 
-	ip, open := <-ch
+	ipPorts, open := <-ch
 	if !open {
-		return nil, resolver.ErrIPNotFound
+		return nil, 0, resolver.ErrIPNotFound
 	}
-
-	return ip, nil
+	ips = make([]netip.Addr, len(ipPorts))
+	for i, addr := range ipPorts {
+		ips[i] = addr.Addr()
+	}
+	port = ipPorts[0].Port()
+	return ips, port, nil
 }
 
-func (r *Resolver) LookupIP(ctx context.Context, host string) (ips []netip.Addr, err error) {
-	ch := make(chan []netip.Addr, 1)
+func (r *Resolver) LookupIP(ctx context.Context, host string) (ips []netip.Addr, port uint16, err error) {
+	ch := make(chan []netip.AddrPort, 1)
 	go func() {
 		defer close(ch)
-		ip, err := r.lookupIP(ctx, host, D.TypeAAAA)
+		ip, port, err := r.lookupIP(ctx, host, D.TypeAAAA)
 		if err != nil {
 			return
 		}
-
-		ch <- ip
+		ipPorts := make([]netip.AddrPort, len(ip))
+		for i, addr := range ip {
+			ipPorts[i] = netip.AddrPortFrom(addr, port)
+		}
+		ch <- ipPorts
 	}()
 
-	ips, err = r.lookupIP(ctx, host, D.TypeA)
+	ips, port, err = r.lookupIP(ctx, host, D.TypeA)
 	var waitIPv6 *time.Timer
 	if r != nil && r.ipv6Timeout > 0 {
 		waitIPv6 = time.NewTimer(r.ipv6Timeout)
@@ -96,25 +118,29 @@ func (r *Resolver) LookupIP(ctx context.Context, host string) (ips []netip.Addr,
 	}
 	defer waitIPv6.Stop()
 	select {
-	case ipv6s, open := <-ch:
+	case ipv6Ports, open := <-ch:
 		if !open && err != nil {
-			return nil, resolver.ErrIPNotFound
+			return nil, 0, resolver.ErrIPNotFound
+		}
+		ipv6s := make([]netip.Addr, len(ipv6Ports))
+		for i, addr := range ipv6Ports {
+			ipv6s[i] = addr.Addr()
 		}
 		ips = append(ips, ipv6s...)
 	case <-waitIPv6.C:
 		// wait ipv6 result
 	}
 
-	return ips, nil
+	return ips, port, nil
 }
 
 // LookupIPv4 request with TypeA
-func (r *Resolver) LookupIPv4(ctx context.Context, host string) ([]netip.Addr, error) {
+func (r *Resolver) LookupIPv4(ctx context.Context, host string) ([]netip.Addr, uint16, error) {
 	return r.lookupIP(ctx, host, D.TypeA)
 }
 
 // LookupIPv6 request with TypeAAAA
-func (r *Resolver) LookupIPv6(ctx context.Context, host string) ([]netip.Addr, error) {
+func (r *Resolver) LookupIPv6(ctx context.Context, host string) ([]netip.Addr, uint16, error) {
 	return r.lookupIP(ctx, host, D.TypeAAAA)
 }
 
@@ -170,7 +196,7 @@ func (r *Resolver) ExchangeContext(ctx context.Context, m *D.Msg) (msg *D.Msg, e
 	_, qTypeStr := msgToQtype(m)
 	cacheM, expireTime, hit := r.cache.GetWithExpire(q.String())
 	if hit {
-		ips := msgToIP(cacheM)
+		ips, _ := msgToIP(cacheM)
 		log.Debugln("[DNS] cache hit %s --> %s %s, expire at %s", domain, ips, qTypeStr, expireTime.Format("2006-01-02 15:04:05"))
 		now := time.Now()
 		msg = cacheM.Copy()
@@ -329,7 +355,7 @@ func (r *Resolver) ipExchange(ctx context.Context, m *D.Msg) (msg *D.Msg, err er
 
 	res := <-msgCh
 	if res.Error == nil {
-		if ips := msgToIP(res.Msg); len(ips) != 0 {
+		if ips, _ := msgToIP(res.Msg); len(ips) != 0 {
 			shouldNotFallback := lo.EveryBy(ips, func(ip netip.Addr) bool {
 				return !r.shouldIPFallback(ip)
 			})
@@ -345,32 +371,48 @@ func (r *Resolver) ipExchange(ctx context.Context, m *D.Msg) (msg *D.Msg, err er
 	return
 }
 
-func (r *Resolver) lookupIP(ctx context.Context, host string, dnsType uint16) (ips []netip.Addr, err error) {
+func (r *Resolver) lookupIP(ctx context.Context, host string, dnsType uint16) (ips []netip.Addr, port uint16, err error) {
 	ip, err := netip.ParseAddr(host)
 	if err == nil {
 		ip = ip.Unmap()
 		isIPv4 := ip.Is4()
 		if dnsType == D.TypeAAAA && !isIPv4 {
-			return []netip.Addr{ip}, nil
+			return []netip.Addr{ip}, 0, nil
 		} else if dnsType == D.TypeA && isIPv4 {
-			return []netip.Addr{ip}, nil
+			return []netip.Addr{ip}, 0, nil
 		} else {
-			return []netip.Addr{}, resolver.ErrIPVersion
+			return []netip.Addr{}, 0, resolver.ErrIPVersion
 		}
 	}
 
 	query := &D.Msg{}
-	query.SetQuestion(D.Fqdn(host), dnsType)
+	if svcbHTTPSEnable {
+		// if HTTPS record enabled, query HTTPS only
+		query.SetQuestion(D.Fqdn(host), D.TypeHTTPS)
+	} else {
+		query.SetQuestion(D.Fqdn(host), dnsType)
+	}
 
 	msg, err := r.ExchangeContext(ctx, query)
 	if err != nil {
-		return []netip.Addr{}, err
+		return []netip.Addr{}, 0, err
 	}
 
-	ips = msgToIP(msg)
+	ips, port = msgToIP(msg)
+	if svcbHTTPSEnable {
+		ips = lo.Filter(ips, func(ip netip.Addr, index int) bool {
+			if dnsType == D.TypeA {
+				return ip.Is4()
+			}
+			if dnsType == D.TypeAAAA {
+				return ip.Is6()
+			}
+			return true
+		})
+	}
 	ipLength := len(ips)
 	if ipLength == 0 {
-		return []netip.Addr{}, resolver.ErrIPNotFound
+		return []netip.Addr{}, 0, resolver.ErrIPNotFound
 	}
 
 	return

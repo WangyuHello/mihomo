@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -378,13 +379,14 @@ func parseAddr(ctx context.Context, network, address string, preferResolver reso
 	}
 
 	var ips []netip.Addr
+	var port2 uint16
 	switch network {
 	case "tcp4", "udp4":
-		ips, err = resolver.LookupIPv4WithResolver(ctx, host, preferResolver)
+		ips, port2, err = resolver.LookupIPv4WithResolver(ctx, host, preferResolver)
 	case "tcp6", "udp6":
-		ips, err = resolver.LookupIPv6WithResolver(ctx, host, preferResolver)
+		ips, port2, err = resolver.LookupIPv6WithResolver(ctx, host, preferResolver)
 	default:
-		ips, err = resolver.LookupIPWithResolver(ctx, host, preferResolver)
+		ips, port2, err = resolver.LookupIPWithResolver(ctx, host, preferResolver)
 	}
 	if err != nil {
 		return nil, "-1", fmt.Errorf("dns resolve failed: %w", err)
@@ -393,6 +395,9 @@ func parseAddr(ctx context.Context, network, address string, preferResolver reso
 		if ip.Is4In6() {
 			ips[i] = ip.Unmap()
 		}
+	}
+	if port2 != 0 {
+		port = strconv.Itoa(int(port2))
 	}
 	return ips, port, nil
 }

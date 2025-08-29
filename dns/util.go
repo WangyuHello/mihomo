@@ -190,7 +190,7 @@ func handleMsgWithEmptyAnswer(r *D.Msg) *D.Msg {
 	return msg
 }
 
-func msgToIP(msg *D.Msg) (ips []netip.Addr) {
+func msgToIP(msg *D.Msg) (ips []netip.Addr, port uint16) {
 	for _, answer := range msg.Answer {
 		var ip netip.Addr
 		switch ans := answer.(type) {
@@ -198,6 +198,32 @@ func msgToIP(msg *D.Msg) (ips []netip.Addr) {
 			ip, _ = netip.AddrFromSlice(ans.AAAA)
 		case *D.A:
 			ip, _ = netip.AddrFromSlice(ans.A)
+		case *D.HTTPS:
+			for _, svc := range ans.SVCB.Value {
+				switch svctype := svc.(type) {
+				case *D.SVCBIPv4Hint:
+					for _, v4 := range svctype.Hint {
+						ip, _ = netip.AddrFromSlice(v4)
+						if !ip.IsValid() {
+							continue
+						}
+						ips = append(ips, ip)
+					}
+				case *D.SVCBIPv6Hint:
+					for _, v6 := range svctype.Hint {
+						ip, _ = netip.AddrFromSlice(v6)
+						if !ip.IsValid() {
+							continue
+						}
+						ip = ip.Unmap()
+						ips = append(ips, ip)
+					}
+				case *D.SVCBPort:
+					port = svctype.Port
+				default:
+					continue
+				}
+			}
 		default:
 			continue
 		}
@@ -248,7 +274,7 @@ func batchExchange(ctx context.Context, clients []dnsClient, m *D.Msg) (msg *D.M
 				// so we would ignore RCode errors from RCode clients.
 				return nil, errors.New("server failure: " + D.RcodeToString[m.Rcode])
 			}
-			ips := msgToIP(m)
+			ips, _ := msgToIP(m)
 			log.Debugln("[DNS] %s --> %s %s from %s", domain, ips, qTypeStr, client.Address())
 			return m, nil
 		})

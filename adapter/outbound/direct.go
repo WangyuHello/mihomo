@@ -51,7 +51,7 @@ func (d *Direct) ListenPacketContext(ctx context.Context, metadata *C.Metadata) 
 
 func (d *Direct) ResolveUDP(ctx context.Context, metadata *C.Metadata) error {
 	if (!metadata.Resolved() || resolver.DirectHostResolver != resolver.DefaultResolver) && metadata.Host != "" {
-		ip, err := resolver.ResolveIPWithResolver(ctx, metadata.Host, resolver.DirectHostResolver)
+		ip, _, err := resolver.ResolveIPWithResolver(ctx, metadata.Host, resolver.DirectHostResolver)
 		if err != nil {
 			return fmt.Errorf("can't resolve ip: %w", err)
 		}

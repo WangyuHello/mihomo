@@ -40,21 +40,24 @@ func resolveUDPAddr(ctx context.Context, network, address string, prefer C.DNSPr
 		return nil, err
 	}
 	var ip netip.Addr
+	var port2 uint16
 	switch prefer {
 	case C.IPv4Only:
-		ip, err = resolver.ResolveIPv4WithResolver(ctx, host, resolver.ProxyServerHostResolver)
+		ip, port2, err = resolver.ResolveIPv4WithResolver(ctx, host, resolver.ProxyServerHostResolver)
 	case C.IPv6Only:
-		ip, err = resolver.ResolveIPv6WithResolver(ctx, host, resolver.ProxyServerHostResolver)
+		ip, port2, err = resolver.ResolveIPv6WithResolver(ctx, host, resolver.ProxyServerHostResolver)
 	case C.IPv6Prefer:
-		ip, err = resolver.ResolveIPPrefer6WithResolver(ctx, host, resolver.ProxyServerHostResolver)
+		ip, port2, err = resolver.ResolveIPPrefer6WithResolver(ctx, host, resolver.ProxyServerHostResolver)
 	default:
-		ip, err = resolver.ResolveIPWithResolver(ctx, host, resolver.ProxyServerHostResolver)
+		ip, port2, err = resolver.ResolveIPWithResolver(ctx, host, resolver.ProxyServerHostResolver)
 	}
 
 	if err != nil {
 		return nil, err
 	}
-
+	if port2 != 0 {
+		port = strconv.Itoa(int(port2))
+	}
 	ip, port = resolver.LookupIP4P(ip, port)
 	return net.ResolveUDPAddr(network, net.JoinHostPort(ip.String(), port))
 }

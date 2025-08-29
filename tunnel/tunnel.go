@@ -353,7 +353,7 @@ func resolveMetadata(metadata *C.Metadata) (proxy C.Proxy, rule C.Rule, err erro
 			if !resolved && metadata.Host != "" && !metadata.Resolved() {
 				ctx, cancel := context.WithTimeout(context.Background(), resolver.DefaultDNSTimeout)
 				defer cancel()
-				ip, err := resolver.ResolveIP(ctx, metadata.Host)
+				ip, _, err := resolver.ResolveIP(ctx, metadata.Host)
 				if err != nil {
 					log.Debugln("[DNS] resolve %s error: %s", metadata.Host, err.Error())
 				} else {

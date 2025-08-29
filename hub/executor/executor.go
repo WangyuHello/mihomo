@@ -221,6 +221,7 @@ func updateExperimental(c *config.Experimental) {
 		_ = os.Setenv("QUIC_GO_DISABLE_ECN", strconv.FormatBool(true))
 	}
 	resolver.SetIP4PEnable(c.IP4PEnable)
+	dns.SetSVCBHTTPSEnable(c.SVCBHTTPSEnable)
 }
 
 func updateNTP(c *config.NTP) {

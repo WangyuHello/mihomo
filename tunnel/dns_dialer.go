@@ -45,7 +45,7 @@ func (d *DNSDialer) DialContext(ctx context.Context, network, addr string) (net.
 		metadata.NetWork = C.UDP
 		if !metadata.Resolved() {
 			// udp must resolve host first
-			dstIP, err := resolver.ResolveIPWithResolver(ctx, metadata.Host, r)
+			dstIP, _, err := resolver.ResolveIPWithResolver(ctx, metadata.Host, r)
 			if err != nil {
 				return nil, err
 			}
@@ -57,7 +57,7 @@ func (d *DNSDialer) DialContext(ctx context.Context, network, addr string) (net.
 		if proxyName == DnsRespectRules {
 			if !metadata.Resolved() {
 				// resolve here before resolveMetadata to avoid its inner resolver.ResolveIP
-				dstIP, err := resolver.ResolveIPWithResolver(ctx, metadata.Host, r)
+				dstIP, _, err := resolver.ResolveIPWithResolver(ctx, metadata.Host, r)
 				if err != nil {
 					return nil, err
 				}
@@ -84,7 +84,7 @@ func (d *DNSDialer) DialContext(ctx context.Context, network, addr string) (net.
 
 		if proxyAdapter.IsL3Protocol(metadata) { // L3 proxy should resolve domain before to avoid loopback
 			if !metadata.Resolved() {
-				dstIP, err := resolver.ResolveIPWithResolver(ctx, metadata.Host, r)
+				dstIP, _, err := resolver.ResolveIPWithResolver(ctx, metadata.Host, r)
 				if err != nil {
 					return nil, err
 				}
@@ -141,7 +141,7 @@ func (d *DNSDialer) ListenPacket(ctx context.Context, network, addr string) (net
 	}
 	if !metadata.Resolved() {
 		// udp must resolve host first
-		dstIP, err := resolver.ResolveIPWithResolver(ctx, metadata.Host, r)
+		dstIP, _, err := resolver.ResolveIPWithResolver(ctx, metadata.Host, r)
 		if err != nil {
 			return nil, err
 		}
